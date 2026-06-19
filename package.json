@@ -1,6 +1,6 @@
 {
   "name": "node-esm-mock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Mock ES modules in Node.js using registerHooks",
   "type": "module",
   "main": "dist/index.js",
