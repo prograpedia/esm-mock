@@ -1,0 +1,46 @@
+{
+  "name": "node-esm-mock",
+  "version": "0.1.0",
+  "description": "Mock ES modules in Node.js using registerHooks",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "tsc",
+    "test": "node --test test/index.ts"
+  },
+  "keywords": [
+    "mock",
+    "module",
+    "esm",
+    "test",
+    "node",
+    "registerHooks"
+  ],
+  "license": "MIT",
+  "repository": "https://github.com/prograpedia/node-esm-mock",
+  "author": "Cristian Torres <cris.torres15@gmail.com>",
+  "engines": {
+    "node": ">=22.7.0"
+  },
+  "dependencies": {
+    "typescript": "^5.5.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@types/sinon": "^21.0.1",
+    "sinon": "^22.0.0",
+    "ts-node": "^10.9.2"
+  },
+  "packageManager": "pnpm@11.7.0+sha512.19cc852c120c7125760f2443ee6be0ca5b40f9f50598de1a09a1f177503e010e57c23c77646e01e761de59bf874fb22a3398c33ab9691fc13eb946b6f0f4d620"
+}
