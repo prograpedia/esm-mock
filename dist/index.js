@@ -1,94 +1,78 @@
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 import { registerHooks } from 'node:module';
-const mockedModuleExports = new Map();
-let mainImportURL = import.meta.url;
 registerHooks({
-    resolve(specifier, context, nextResolve) {
-        var _a;
-        const def = nextResolve(specifier, context);
-        if (!((_a = context.parentURL) === null || _a === void 0 ? void 0 : _a.startsWith('mock-facade:'))) {
-            if (mockedModuleExports.has(def.url)) {
-                return {
-                    shortCircuit: true, url: `mock-facade:${encodeURIComponent(def.url)}`,
-                };
+    resolve(specifier, context, nextResolver) {
+        const resolved = nextResolver(specifier, context);
+        const mocksForSpecifier = mocksFor.get(specifier);
+        if (mocksForSpecifier) {
+            mocksFor.set(resolved.url, mocksForSpecifier);
+        }
+        if (context.parentURL) {
+            const mocksForParentURL = mocksFor.get(context.parentURL);
+            if (mocksForParentURL) {
+                const scope = context.parentURL.split('?')[1];
+                const resolvedUrl = `${resolved.url}?${scope}`;
+                if (mocksForParentURL.has(resolvedUrl)) {
+                    return {
+                        url: resolvedUrl, format: 'mocked', importAttributes: {
+                            parentURL: context.parentURL,
+                        }, shortCircuit: true
+                    };
+                }
             }
         }
-        return def;
-    }, load(url, context, nextLoad) {
-        if (url.startsWith('mock-facade:')) {
-            const encodedTargetURL = url.slice(url.lastIndexOf(':') + 1);
-            return {
-                shortCircuit: true, source: generateModule(encodedTargetURL), format: 'module',
-            };
+        return resolved;
+    }, load(url, context, nextLoader) {
+        if (context.format === 'mocked') {
+            const source = generateModule(context.importAttributes.parentURL, url);
+            return { source, format: 'module', shortCircuit: true };
         }
-        return nextLoad(url, context);
+        return nextLoader(url, context);
     }
 });
-function generateModule(encodedTargetURL) {
-    const exports = mockedModuleExports.get(decodeURIComponent(encodedTargetURL));
+export const mocksFor = new Map();
+function generateModule(parent, url) {
     const body = [
-        `import { mockedModules } from ${JSON.stringify(mainImportURL)};`,
-        'export {};',
-        'let mapping = {__proto__: null};',
-        `const mock = mockedModules.get(${JSON.stringify(encodedTargetURL)});`,
+        `import {mocksFor} from ${JSON.stringify(import.meta.url)};`,
+        `const exports = mocksFor.get(${JSON.stringify(parent)});`,
     ];
-    for (const [i, name] of Object.entries(exports)) {
-        const key = JSON.stringify(name);
-        body.push(`var _${i} = mock.namespace[${key}];`);
-        body.push(`Object.defineProperty(mapping, ${key}, { enumerable: true, set(v) {_${i} = v;}, get() {return _${i};} });`);
-        body.push(`export {_${i} as ${name}};`);
-    }
-    body.push(`mock.listeners.push(() => {
-        for (var k in mapping) {
-            mapping[k] = mock.namespace[k];
+    if (parent) {
+        const mocksForParent = mocksFor.get(parent);
+        if (mocksForParent) {
+            const exports = mocksForParent.get(url);
+            if (exports) {
+                for (const key in exports) {
+                    body.push(`export const ${key} = exports.get(${JSON.stringify(url)})[${JSON.stringify(key)}];`);
+                }
+            }
         }
-    });`);
+    }
     return body.join('\n');
 }
-export const mockedModules = new Map();
-function add(resolved, replacementProperties) {
-    const exportNames = Object.keys(replacementProperties);
-    const namespace = { __proto__: null };
-    const listeners = [];
-    for (const name of exportNames) {
-        let currentValueForPropertyName = replacementProperties[name];
-        Object.defineProperty(namespace, name, {
-            // @ts-ignore
-            __proto__: null,
-            enumerable: true,
-            get() {
-                return currentValueForPropertyName;
-            }, set(v) {
-                currentValueForPropertyName = v;
-                for (const fn of listeners) {
-                    try {
-                        fn(name);
-                    }
-                    catch (_a) {
-                        /* noop */
-                    }
-                }
-            },
-        });
-    }
-    mockedModules.set(encodeURIComponent(resolved), {
-        namespace, listeners,
-    });
-    mockedModuleExports.set(resolved, exportNames);
-    return namespace;
-}
-export function mock(mocks = {}) {
-    const mockedModules = new Map();
+let version = 0;
+export function mock(modules = {}) {
     return {
-        for(specifier) {
-            try {
-                for (const spec in mocks) {
-                    mockedModules.set(spec, add(spec, mocks[spec]));
+        for(specifier_1) {
+            return __awaiter(this, arguments, void 0, function* (specifier, keep = false) {
+                try {
+                    const scope = (version++).toString() + +new Date();
+                    specifier = `${specifier}?${scope}`;
+                    mocksFor.set(specifier, new Map(Object.entries(modules).map(([k, v]) => [`${k}?${scope}`, v])));
+                    return yield import(specifier);
                 }
-                return import(`${specifier}?${+new Date()}`);
-            }
-            finally {
-                mockedModules.forEach((_, mockedModule) => mockedModuleExports.delete(mockedModule));
-            }
+                finally {
+                    if (!keep)
+                        mocksFor.delete(specifier);
+                }
+            });
         }
     };
 }

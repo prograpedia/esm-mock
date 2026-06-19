@@ -1,6 +1,6 @@
 {
   "name": "node-esm-mock",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Mock ES modules in Node.js using registerHooks",
   "type": "module",
   "main": "dist/index.js",
@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "tsc",
-    "test": "node --test test/index.ts"
+    "test": "node --import ./utils/register.ts --no-warnings --test"
   },
   "keywords": [
     "mock",
@@ -37,8 +37,10 @@
     "typescript": "^5.5.3"
   },
   "devDependencies": {
+    "@types/chai": "^5.2.3",
     "@types/node": "^25.9.3",
     "@types/sinon": "^21.0.1",
+    "chai": "^6.2.2",
     "sinon": "^22.0.0",
     "ts-node": "^10.9.2"
   },

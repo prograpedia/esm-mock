@@ -1,4 +1,4 @@
-export declare const mockedModules: Map<any, any>;
-export declare function mock(mocks?: Record<string, Record<string, unknown>>): {
-    for<T = any>(specifier: string): Promise<T>;
+export declare const mocksFor: Map<string, Map<string, any>>;
+export declare function mock(modules?: Record<string, any>): {
+    for<T = any>(specifier: string, keep?: boolean): Promise<T>;
 };

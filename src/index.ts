@@ -1,97 +1,71 @@
 import { registerHooks } from 'node:module';
 
-const mockedModuleExports = new Map();
-let mainImportURL = import.meta.url;
-
 registerHooks({
-    resolve(specifier, context, nextResolve) {
-        const def = nextResolve(specifier, context);
-        if (!context.parentURL?.startsWith('mock-facade:')) {
-            if (mockedModuleExports.has(def.url)) {
-                return {
-                    shortCircuit: true, url: `mock-facade:${encodeURIComponent(def.url)}`,
-                };
-            }
-        }
-        return def;
-    }, load(url, context, nextLoad) {
-        if (url.startsWith('mock-facade:')) {
-            const encodedTargetURL = url.slice(url.lastIndexOf(':') + 1);
-            return {
-                shortCircuit: true, source: generateModule(encodedTargetURL), format: 'module',
-            };
-        }
-        return nextLoad(url, context);
+  resolve(specifier, context, nextResolver) {
+    const resolved = nextResolver(specifier, context);
+    const mocksForSpecifier = mocksFor.get(specifier)
+    if (mocksForSpecifier) {
+      mocksFor.set(resolved.url, mocksForSpecifier);
     }
-});
+    if (context.parentURL) {
+      const mocksForParentURL = mocksFor.get(context.parentURL);
+      if (mocksForParentURL) {
+        const scope = context.parentURL.split('?')[1]
+        const resolvedUrl = `${resolved.url}?${scope}`
+        if (mocksForParentURL.has(resolvedUrl)) {
+          return {
+            url: resolvedUrl, format: 'mocked', importAttributes: {
+              parentURL: context.parentURL,
+            }, shortCircuit: true
+          };
+        }
+      }
+    }
+    return resolved;
+  }, load(url, context, nextLoader) {
+    if (context.format === 'mocked') {
+      const source = generateModule(context.importAttributes.parentURL, url);
+      return { source, format: 'module', shortCircuit: true };
+    }
+    return nextLoader(url, context);
+  }
+})
 
-function generateModule(encodedTargetURL: string) {
-    const exports = mockedModuleExports.get(decodeURIComponent(encodedTargetURL));
-    const body = [
-        `import { mockedModules } from ${JSON.stringify(mainImportURL)};`,
-        'export {};',
-        'let mapping = {__proto__: null};',
-        `const mock = mockedModules.get(${JSON.stringify(encodedTargetURL)});`,
-    ];
-    for (const [i, name] of Object.entries(exports)) {
-        const key = JSON.stringify(name);
-        body.push(`var _${i} = mock.namespace[${key}];`);
-        body.push(`Object.defineProperty(mapping, ${key}, { enumerable: true, set(v) {_${i} = v;}, get() {return _${i};} });`,);
-        body.push(`export {_${i} as ${name}};`);
-    }
-    body.push(`mock.listeners.push(() => {
-        for (var k in mapping) {
-            mapping[k] = mock.namespace[k];
+export const mocksFor = new Map<string, Map<string, any>>();
+
+function generateModule(parent: string | undefined, url: string) {
+  const body = [
+    `import {mocksFor} from ${JSON.stringify(import.meta.url)};`,
+    `const exports = mocksFor.get(${JSON.stringify(parent)});`,
+  ];
+  if (parent) {
+    const mocksForParent = mocksFor.get(parent);
+    if (mocksForParent) {
+      const exports = mocksForParent.get(url);
+      if (exports) {
+        for (const key in exports) {
+          body.push(`export const ${key} = exports.get(${JSON.stringify(url)})[${JSON.stringify(key)}];`)
         }
-    });`);
-    return body.join('\n');
+      }
+    }
+  }
+  return body.join('\n')
 }
 
-export const mockedModules = new Map();
+let version = 0;
 
-function add<T extends Record<string, unknown>>(resolved: string, replacementProperties: T) {
-    const exportNames = Object.keys(replacementProperties);
-    const namespace = { __proto__: null };
-    const listeners: ((name: string) => void)[] = [];
-    for (const name of exportNames) {
-        let currentValueForPropertyName = replacementProperties[name];
-        Object.defineProperty(namespace, name, {
-            // @ts-ignore
-            __proto__: null,
-            enumerable: true,
-            get() {
-                return currentValueForPropertyName;
-            }, set(v) {
-                currentValueForPropertyName = v;
-                for (const fn of listeners) {
-                    try {
-                        fn(name);
-                    } catch {
-                        /* noop */
-                    }
-                }
-            },
-        });
+export function mock(modules: Record<string, any> = {}) {
+  return {
+    async for<T = any>(specifier: string, keep: boolean = false): Promise<T> {
+      try {
+        const scope = (version++).toString() + +new Date();
+        specifier = `${specifier}?${scope}`;
+        mocksFor.set(specifier, new Map(Object.entries(modules).map(([k, v]) => [`${k}?${scope}`, v])));
+        return await import(specifier)
+      } finally {
+        if (!keep)
+          mocksFor.delete(specifier);
+      }
     }
-    mockedModules.set(encodeURIComponent(resolved), {
-        namespace, listeners,
-    });
-    mockedModuleExports.set(resolved, exportNames);
-    return namespace as unknown as T;
-}
-
-export function mock(mocks: Record<string, Record<string, unknown>> = {}) {
-    const mockedModules = new Map<string, unknown>();
-    return {
-        for<T = any>(specifier: string): Promise<T> {
-            try {
-                for (const spec in mocks) {
-                    mockedModules.set(spec, add(spec, mocks[spec]));
-                }
-                return import(`${specifier}?${+new Date()}`);
-            } finally {
-                mockedModules.forEach((_, mockedModule) => mockedModuleExports.delete(mockedModule));
-            }
-        }
-    }
+  }
 }
